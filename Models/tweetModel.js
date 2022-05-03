@@ -20,6 +20,10 @@ const tweetSchema = mongoose.Schema({
     quote_count: {
         type: Number,
         required: [true, "Please insert the quote_count field"]
+    },
+    text: {
+        type: String,
+        required: [true, "Please insert the text field"]
     }
 },
 {

@@ -1,10 +1,7 @@
-const { default: axios } = require("axios")
-const dotenv = require("dotenv").config()
-const mysql = require("mysql")
-const { formatTweetsArray } = require("./assets/assets")
 const connectDB = require("./assets/db")
 const Tweets = require("./Models/tweetModel")
 const Liked = require("./Models/liked_tweetsModel")
+const Retweets = require("./Models/retweetModel")
 const { TwitterApi } = require('twitter-api-v2');
 const { TwitterApiRateLimitPlugin } = require('@twitter-api-v2/plugin-rate-limit') 
 
@@ -17,14 +14,10 @@ const rateLimitPlugin = new TwitterApiRateLimitPlugin()
 const appOnlyClient = new TwitterApi(twitter_bearer_token, { plugins: [rateLimitPlugin]});
 const client = appOnlyClient.v2;
 
-
-
-
 const getTweets = async () => {
     try {
         const userTimeline = await client.userTimeline(twitter_account_id, { "max_results": 100, "tweet.fields": "public_metrics" })
-
-        // Get all the tweets until there are no more results available 
+        // Get the user timeline until there are no more results available 
         // or until rate limit is hit
         let tweets = []
         for await (const tweet of userTimeline) {
@@ -33,7 +26,8 @@ const getTweets = async () => {
                 "retweet_count": tweet.public_metrics.retweet_count,
                 "reply_count": tweet.public_metrics.reply_count,
                 "like_count": tweet.public_metrics.like_count,
-                "quote_count": tweet.public_metrics.quote_count
+                "quote_count": tweet.public_metrics.quote_count,
+                "text": tweet.text
             })
         }
 
@@ -63,11 +57,10 @@ const getTweets = async () => {
 }
 
 
-
 const getLikes = async () => {
 
-    // Get the tweets that have at least 1 like from the DB
-    const likedTweets = await Tweets.find({ like_count: { $gte: 1 } })
+    // Get the tweets that have at least 1 like from the DB and it's also not a retweeted tweet at the same time
+    const likedTweets = await Tweets.find({ like_count: { $gte: 1 }, text: { $regex: "^(?!RT)" }})
 
     
     // If there are liked tweets
@@ -80,7 +73,8 @@ const getLikes = async () => {
                 for await (const user of usersPaginated) {
                     const obj = { tweet_id: tweet.tweet_id, user_id: user.id }
                     const likedDB = await Liked.updateOne({ tweet_id: tweet.tweet_id, user_id: user.id }, obj, { upsert: true, setDefaultsOnInsert: true })             
-                }     
+                }
+                 
                   
             } catch (error) {
                 // If there's an error thrown by Twitter's API, wait 16 minutes (15 of cooldown + 1 to make sure)
@@ -103,8 +97,10 @@ const getLikes = async () => {
                     }  
                 }
             }
+              
             
         }
+        console.log("Likes added")  
 
     }
     else {
@@ -113,6 +109,53 @@ const getLikes = async () => {
 
 }
 
+
+const getRetweets = async () => {
+    // Get ONLY the tweets from this user that have been retweeted
+    const retweets = await Tweets.find({ like_count: { $gte: 1 }, text: { $regex: "^(?!RT)" }})
+
+    if (retweets.length > 0) {
+
+        for (const tweet of retweets) {
+            try {
+                const usersPaginated = await client.tweetRetweetedBy(tweet.tweet_id, { asPaginator: true, "max_results": 100 })
+                //console.log(`--- Tweet ${tweet.tweet_id} ---\nRemaining Requests: ${usersPaginated.rateLimit.remaining}`)
+                for await (const user of usersPaginated) {
+                    console.log(user)
+                    const obj = { tweet_id: tweet.tweet_id, user_id: user.id }
+                    const retweetDB = await Retweets.updateOne({ tweet_id: tweet.tweet_id, user_id: user.id }, obj, { upsert: true, setDefaultsOnInsert: true })             
+                }   
+                
+            } catch (error) {
+                
+                // If there's an error thrown by Twitter's API, wait 16 minutes (15 of cooldown + 1 to make sure)
+                // Retry again the last request
+                console.log("__ERROR__")
+                if (error.rateLimitError && error.rateLimit) {
+                    console.log(`You just hit the rate limit! Limit for this endpoint is ${error.rateLimit.limit} requests!`);
+
+                    const resetTimeout = error.rateLimit.reset * 1000; // convert to ms time instead of seconds time
+                    const timeToWait = resetTimeout - Date.now();
+                    console.log("Waiting 16 minutes " + timeToWait)
+
+                    await sleep(960000)
+                    
+                    const usersPaginated = await client.tweetLikedBy(tweet.tweet_id, { asPaginator: true, "max_results": 100 } )
+                    // console.log(`--- Tweet ${tweet.tweet_id} ---\nRemaining Requests: ${usersPaginated.rateLimit.remaining}`)
+                    for await (const user of usersPaginated) {
+                        const obj = { tweet_id: tweet.tweet_id, user_id: user.id }
+                        const retweetDB = await Retweets.updateOne({ tweet_id: tweet.tweet_id, user_id: user.id }, obj, { upsert: true, setDefaultsOnInsert: true })              
+                    }  
+                }
+            }
+            
+        }
+        console.log("Retweets added")
+    }
+    else {
+        console.log("No tweets found")
+    }
+}
 
 
 
@@ -128,7 +171,10 @@ function sleep(time) {
 }
 
 module.exports = {
-    getUserbyUsername: getUserbyUsername
+    getUserbyUsername: getUserbyUsername,
+    getTweets: getTweets,
+    getLikes: getLikes,
+    getRetweets: getRetweets
 }
 
 
