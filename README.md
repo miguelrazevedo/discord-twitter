@@ -1,6 +1,6 @@
 # Discord-Twitter
 
-This discord bot is currently checking how many tweets a user liked/retweeted in a specific Twitter account
+This discord bot is currently checking how many tweets a user liked/retweeted in a specific Twitter account with [Node Twitter API V2](https://github.com/PLhery/node-twitter-api-v2)
 
 ### Installation
 
