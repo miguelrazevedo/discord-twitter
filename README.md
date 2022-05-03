@@ -16,7 +16,7 @@ To make this bot work, you'll need to set up some variables first, you can creat
 
 ```sh
 # TWITTER
-TWITTER_ACCOUNT_ID="976046836090900480"
+TWITTER_ACCOUNT_ID="string"
 TWITTER_BEARER_TOKEN="string"
 
 # MONGO DB
