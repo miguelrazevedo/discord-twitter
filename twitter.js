@@ -53,6 +53,9 @@ const getTweets = async () => {
         if (error.rateLimitError && error.rateLimit) {
             console.log(`You just hit the rate limit! Limit for this endpoint is ${error.rateLimit.limit} requests!`);
         }
+        else {
+            console.log(error)
+        }
     }
 }
 
@@ -66,13 +69,14 @@ const getLikes = async () => {
     // If there are liked tweets
     if (likedTweets.length > 0) {
 
+        let likedArray = []
         for (const tweet of likedTweets) {
             try {
                 const usersPaginated = await client.tweetLikedBy(tweet.tweet_id, { asPaginator: true, "max_results": 100 } )
                 // console.log(`--- Tweet ${tweet.tweet_id} ---\nRemaining Requests: ${usersPaginated.rateLimit.remaining}`)
                 for await (const user of usersPaginated) {
                     const obj = { tweet_id: tweet.tweet_id, user_id: user.id }
-                    const likedDB = await Liked.updateOne({ tweet_id: tweet.tweet_id, user_id: user.id }, obj, { upsert: true, setDefaultsOnInsert: true })             
+                    likedArray.push(obj)                             
                 }
                  
                   
@@ -93,13 +97,43 @@ const getLikes = async () => {
                     // console.log(`--- Tweet ${tweet.tweet_id} ---\nRemaining Requests: ${usersPaginated.rateLimit.remaining}`)
                     for await (const user of usersPaginated) {
                         const obj = { tweet_id: tweet.tweet_id, user_id: user.id }
-                        const likedDB = await Liked.updateOne({ tweet_id: tweet.tweet_id, user_id: user.id }, obj, { upsert: true, setDefaultsOnInsert: true })             
+                        likedArray.push(obj)
                     }  
+                }
+                else {
+                    console.log(error)
                 }
             }
               
             
         }
+
+        // Add all the likes in DB
+        // if there are tweets in DB, delete them and insert new ones
+        Liked.where({}).countDocuments((err, count) => {
+            if (err) {
+                console.log(err)
+            }
+            else {
+                if (count > 0) {
+                    Liked.deleteMany({}, (callback) => {
+                        
+                    })
+                }   
+                Liked.bulkWrite(
+                    likedArray.map((likedTweet) => {
+                        return ({
+                            updateOne: {
+                                filter: { tweet_id: likedTweet.tweet_id, user_id: likedTweet.user_id },
+                                update: { $set: likedTweet },
+                                upsert: true
+                            }
+                        })
+                    })
+                )
+            }
+            
+        })
         console.log("Likes added")  
 
     }
@@ -116,6 +150,7 @@ const getRetweets = async () => {
 
     if (retweets.length > 0) {
 
+        let retweets = []
         for (const tweet of retweets) {
             try {
                 const usersPaginated = await client.tweetRetweetedBy(tweet.tweet_id, { asPaginator: true, "max_results": 100 })
@@ -123,7 +158,7 @@ const getRetweets = async () => {
                 for await (const user of usersPaginated) {
                     console.log(user)
                     const obj = { tweet_id: tweet.tweet_id, user_id: user.id }
-                    const retweetDB = await Retweets.updateOne({ tweet_id: tweet.tweet_id, user_id: user.id }, obj, { upsert: true, setDefaultsOnInsert: true })             
+                    retweets.push(obj)
                 }   
                 
             } catch (error) {
@@ -144,12 +179,42 @@ const getRetweets = async () => {
                     // console.log(`--- Tweet ${tweet.tweet_id} ---\nRemaining Requests: ${usersPaginated.rateLimit.remaining}`)
                     for await (const user of usersPaginated) {
                         const obj = { tweet_id: tweet.tweet_id, user_id: user.id }
-                        const retweetDB = await Retweets.updateOne({ tweet_id: tweet.tweet_id, user_id: user.id }, obj, { upsert: true, setDefaultsOnInsert: true })              
+                        retweets.push(obj)
                     }  
+                }
+                else {
+                    console.log(error)
                 }
             }
             
         }
+        
+        // Add all the retweets in DB
+        // if there are tweets in DB, delete them and insert new ones
+        Retweets.where({}).countDocuments((err, count) => {
+            if (err) {
+                console.log(err)
+            }
+            else {
+                if (count > 0) {
+                    Retweets.deleteMany({}, (callback) => {
+
+                    })
+                }
+    
+                Retweets.bulkWrite(
+                    retweets.map((retweet) => {
+                        return ({
+                            updateOne: {
+                                filter: { tweet_id: retweet.tweet_id, user_id: retweet.user_id },
+                                update: { $set: retweet },
+                                upsert: true
+                            }
+                        })
+                    })
+                )
+            }
+        })
         console.log("Retweets added")
     }
     else {
@@ -176,99 +241,3 @@ module.exports = {
     getLikes: getLikes,
     getRetweets: getRetweets
 }
-
-
-
-/*
-// Get all the tweets and add/update them into the database
-const getTweets = async () => {
-    let responses = []
-
-    let hasNextPage = false
-    let nextPageToken = ""
-
-    // Get the first 100 tweets (Twitter API is limited to 100 per request)
-    await axios.get(`https://api.twitter.com/2/users/${twitter_account_id}/tweets`, {
-        headers: {
-            "Authorization": `Bearer ${twitter_bearer_token}`
-        },
-        params: {
-            "max_results": 100,
-            "tweet.fields": "public_metrics"
-        }
-    }).then((res) => {
-        // If there's any results
-        if (res.data.meta.result_count > 0) {
-            responses.push(res.data.data)
-
-            // If the response has next_token field, it means there's still more tweets to check
-            if (res.data.meta.next_token) {
-                hasNextPage = true
-                nextPageToken = res.data.meta.next_token
-            }
-        }
-    }).catch((err) => {
-        // If there's an error, it's not possible to make more requests
-        if (err.response) {
-            hasNextPage = false
-        }
-    })
-
-    // Get the rest of the tweets
-    while (hasNextPage) {
-        await axios.get(`https://api.twitter.com/2/users/${twitter_account_id}/tweets`, {
-            headers: {
-                "Authorization": `Bearer ${twitter_bearer_token}`
-            },
-            params: {
-                "max_results": 100,
-                "tweet.fields": "public_metrics",
-                "pagination_token": nextPageToken
-            }
-        }).then((res) => {
-            // If there's any results
-            if (res.data.meta.result_count > 0) {
-                responses.push(res.data.data)
-
-                // If the response has next_token field, it means there's still more tweets to check
-                if (res.data.meta.next_token) {
-                    hasNextPage = true
-                    nextPageToken = res.data.meta.next_token
-                }
-                // If there's no next_token field, set the flag to false to stop making requests
-                else {
-                    hasNextPage = false
-                }
-            }
-        }).catch((err) => {
-            // If there's an error, it's not possible to make more requests
-            if (err.response) {
-                hasNextPage = false
-            }
-        })
-    }
-
-    // If there's at least one tweet, format the response
-    if (responses.length > 0) {
-        const tweetsArray = formatTweetsArray(responses)
-
-        const tweetsDB = await Tweets.bulkWrite(
-            tweetsArray.map((tweet) => {
-                return ({
-                    updateOne: {
-                        filter: { tweet_id: tweet.tweet_id },
-                        update: { $set: tweet },
-                        upsert: true
-                    }
-                })
-            })
-        )
-
-        console.log("Tweets Added")
-
-    }
-    else {
-        console.log("\nNo tweets found!")
-    }
-}
-*/
