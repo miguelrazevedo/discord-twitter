@@ -14,7 +14,7 @@
     "@twitter-api-v2/plugin-rate-limit": "^1.1.0",
     "discord.js": "^13.6.0",
     "dotenv": "^16.0.0",
-    "mongoose": "^6.3.1",
+    "mongoose": "^6.13.6",
     "twitter-api-v2": "^1.12.0"
   },
   "devDependencies": {
